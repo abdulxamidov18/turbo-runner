@@ -1,1564 +1,1529 @@
-const W=390,H=844;
-const LANES=[W*.27,W*.5,W*.73];
+const W = 390;
+const H = 844;
 
-let player,obstacles,coins;
-let lane=1,score=0,coinsCount=0;
-let best=+(localStorage.getItem("turboBest")||0);
-let speed=390,alive=false,started=false;
-let roadMarks=[];
-let scoreText,coinText,bestText;
-let startX=0,startY=0;
+const LANES = [W * 0.27, W * 0.50, W * 0.73];
 
-const cfg={
- type:Phaser.AUTO,
- parent:"game",
- width:W,
- height:H,
- backgroundColor:"#050816",
- scale:{
-  mode:Phaser.Scale.FIT,
-  autoCenter:Phaser.Scale.CENTER_BOTH
- },
- physics:{
-  default:"arcade",
-  arcade:{gravity:{y:0},debug:false}
- },
- scene:{create,update}
+let player;
+let obstacles;
+let coins;
+
+let lane = 1;
+let score = 0;
+let collectedCoins = 0;
+let best = Number(localStorage.getItem("turboBest")) || 0;
+
+let speed = 390;
+let alive = false;
+let started = false;
+
+let scoreText;
+let coinText;
+
+let touchX = 0;
+let touchY = 0;
+
+let roadLines = [];
+
+const config = {
+    type: Phaser.AUTO,
+    parent: "game",
+
+    width: W,
+    height: H,
+
+    backgroundColor: "#050816",
+
+    scale: {
+        mode: Phaser.Scale.FIT,
+        autoCenter: Phaser.Scale.CENTER_BOTH
+    },
+
+    physics: {
+        default: "arcade",
+        arcade: {
+            gravity: { y: 0 },
+            debug: false
+        }
+    },
+
+    scene: {
+        preload,
+        create,
+        update
+    }
 };
 
-new Phaser.Game(cfg);
-
-function create(){
- const s=this;
-
- drawWorld(s);
-
- obstacles=s.physics.add.group();
- coins=s.physics.add.group();
-
- player=makeRunner(s,LANES[lane],H-120);
-
- s.physics.add.existing(player);
- player.body.setSize(38,66);
- player.body.setAllowGravity(false);
-
- makeHUD(s);
-
- s.physics.add.overlap(player,coins,(p,c)=>{
-  if(!alive||!c.active)return;
-
-  c.destroy();
-  coinsCount++;
-  score+=75;
-
-  burst(s,p.x,p.y-30,0xffc928);
-  floatingText(s,p.x,p.y-70,"+75","#ffd84a");
- });
-
- s.physics.add.overlap(player,obstacles,(p,o)=>{
-  if(!alive)return;
-
-  if(
-   player.getData("jumping") &&
-   o.getData("jumpable")
-  ) return;
-
-  crash(s);
- });
-
- s.time.addEvent({
-  delay:860,
-  loop:true,
-  callback:()=>alive&&spawnObstacle(s)
- });
-
- s.time.addEvent({
-  delay:480,
-  loop:true,
-  callback:()=>alive&&spawnCoin(s)
- });
-
- s.input.on("pointerdown",p=>{
-  startX=p.x;
-  startY=p.y;
- });
-
- s.input.on("pointerup",p=>{
-  if(!started||!alive)return;
-
-  const dx=p.x-startX;
-  const dy=p.y-startY;
-
-  if(
-   Math.abs(dx)>42 &&
-   Math.abs(dx)>Math.abs(dy)
-  ){
-   move(dx>0?1:-1);
-  }
-  else if(dy<-42){
-   jump();
-  }
- });
-
- if(s.input.keyboard){
-  s.input.keyboard.on(
-   "keydown-LEFT",
-   ()=>move(-1)
-  );
-
-  s.input.keyboard.on(
-   "keydown-RIGHT",
-   ()=>move(1)
-  );
-
-  s.input.keyboard.on(
-   "keydown-UP",
-   jump
-  );
- }
-
- showStart(s);
-}
+new Phaser.Game(config);
 
 
-function drawWorld(s){
+// =====================================================
+// ЗАГРУЗКА ГРАФИКИ
+// =====================================================
 
- // НЕБО
+function preload() {
 
- const g=s.add.graphics();
-
- g.fillGradientStyle(
-  0x07112b,
-  0x07112b,
-  0x190b38,
-  0x190b38,
-  1
- );
-
- g.fillRect(0,0,W,H);
-
-
- // ЛУНА / СВЕЧЕНИЕ
-
- s.add.circle(
-  326,82,34,
-  0x3b82f6,.10
- );
-
- s.add.circle(
-  326,82,23,
-  0x60a5fa,.12
- );
-
- s.add.circle(
-  326,82,12,
-  0xdbeafe,.9
- );
-
-
- // НОЧНОЙ ГОРОД
-
- for(let x=0;x<W;x+=28){
-
-  const h=Phaser.Math.Between(
-   65,170
-  );
-
-  s.add.rectangle(
-   x+14,
-   170-h/2,
-   26,
-   h,
-   Phaser.Math.RND.pick([
-    0x0b1730,
-    0x101b38,
-    0x15163a
-   ])
-  );
-
-  for(
-   let yy=190-h;
-   yy<160;
-   yy+=20
-  ){
-
-   if(Math.random()>.5){
-
-    s.add.rectangle(
-     x+8,
-     yy,
-     3,
-     7,
-     Math.random()>.5
-      ?0x22d3ee
-      :0xf472b6,
-     .75
+    this.load.image(
+        "city",
+        "city.JPG"
     );
 
-   }
-
-  }
-
- }
-
-
- // СВЕЧЕНИЕ ГОРИЗОНТА
-
- s.add.rectangle(
-  W/2,
-  184,
-  W,
-  6,
-  0x22d3ee,
-  .22
- );
-
- s.add.rectangle(
-  W/2,
-  190,
-  W,
-  2,
-  0xf472b6,
-  .28
- );
-
-
- // ОБОЧИНЫ
-
- s.add.rectangle(
-  25,
-  H/2,
-  50,
-  H,
-  0x07101e
- );
-
- s.add.rectangle(
-  W-25,
-  H/2,
-  50,
-  H,
-  0x07101e
- );
-
-
- for(let y=220;y<H;y+=92){
-
-  s.add.rectangle(
-   17,
-   y,
-   5,
-   30,
-   0xfacc15,
-   .85
-  );
-
-  s.add.rectangle(
-   W-17,
-   y+35,
-   5,
-   30,
-   0x22d3ee,
-   .9
-  );
-
- }
-
-
- // ДОРОГА
-
- s.add.rectangle(
-  W/2,
-  (H+180)/2,
-  W*.78,
-  H-180,
-  0x101827
- );
-
-
- // ГРАНИЦЫ ДОРОГИ
-
- s.add.rectangle(
-  W*.11,
-  (H+180)/2,
-  5,
-  H-180,
-  0x60a5fa,
-  .65
- );
-
- s.add.rectangle(
-  W*.89,
-  (H+180)/2,
-  5,
-  H-180,
-  0x60a5fa,
-  .65
- );
-
-
- // РАЗМЕТКА
-
- [
-  W*.385,
-  W*.615
- ].forEach(x=>{
-
-  for(
-   let y=190;
-   y<H+100;
-   y+=100
-  ){
-
-   const m=s.add.rectangle(
-    x,
-    y,
-    5,
-    48,
-    0xcbd5e1,
-    .72
-   );
-
-   roadMarks.push(m);
-
-  }
-
- });
-
-
- // НЕОНОВЫЕ КРАЯ
-
- s.add.rectangle(
-  W*.105,
-  (H+180)/2,
-  2,
-  H-180,
-  0x22d3ee,
-  .5
- );
-
- s.add.rectangle(
-  W*.895,
-  (H+180)/2,
-  2,
-  H-180,
-  0xf472b6,
-  .5
- );
+    this.load.spritesheet(
+        "sprites",
+        "sprites.JPG",
+        {
+            frameWidth: 160,
+            frameHeight: 180
+        }
+    );
 
 }
 
 
-function makeHUD(s){
+// =====================================================
+// СОЗДАНИЕ ИГРЫ
+// =====================================================
 
- s.add.rectangle(
-  77,
-  50,
-  132,
-  70,
-  0x020617,
-  .72
- )
- .setStrokeStyle(
-  1,
-  0x334155,
-  .8
- )
- .setDepth(30);
+function create() {
 
+    const s = this;
 
- scoreText=s.add.text(
-  20,
-  18,
-  "0",
-  {
-   fontSize:"29px",
-   fontStyle:"bold",
-   color:"#fff"
-  }
- )
- .setDepth(31);
+    createBackground(s);
+    createRoad(s);
 
+    obstacles = s.physics.add.group();
+    coins = s.physics.add.group();
 
- bestText=s.add.text(
-  20,
-  53,
-  "РЕКОРД "+best,
-  {
-   fontSize:"12px",
-   color:"#94a3b8"
-  }
- )
- .setDepth(31);
+    createPlayer(s);
+    createHUD(s);
+
+    createAnimations(s);
+
+    // МОНЕТЫ
+
+    s.physics.add.overlap(
+        player,
+        coins,
+        collectCoin
+    );
+
+    // ПРЕПЯТСТВИЯ
+
+    s.physics.add.overlap(
+        player,
+        obstacles,
+        hitObstacle
+    );
 
 
- s.add.circle(
-  327,
-  37,
-  17,
-  0xf59e0b
- )
- .setStrokeStyle(
-  3,
-  0xffdf55
- )
- .setDepth(30);
+    // ГЕНЕРАЦИЯ ТРАНСПОРТА
+
+    s.time.addEvent({
+
+        delay: 900,
+
+        loop: true,
+
+        callback: () => {
+
+            if (alive) {
+
+                spawnObstacle(s);
+
+            }
+
+        }
+
+    });
 
 
- s.add.text(
-  327,
-  37,
-  "★",
-  {
-   fontSize:"14px",
-   color:"#fff6a8"
-  }
- )
- .setOrigin(.5)
- .setDepth(31);
+    // ГЕНЕРАЦИЯ МОНЕТ
+
+    s.time.addEvent({
+
+        delay: 520,
+
+        loop: true,
+
+        callback: () => {
+
+            if (alive) {
+
+                spawnCoin(s);
+
+            }
+
+        }
+
+    });
 
 
- coinText=s.add.text(
-  352,
-  27,
-  "0",
-  {
-   fontSize:"18px",
-   fontStyle:"bold",
-   color:"#fff"
-  }
- )
- .setDepth(31);
+    // УПРАВЛЕНИЕ
+
+    s.input.on(
+        "pointerdown",
+        p => {
+
+            touchX = p.x;
+            touchY = p.y;
+
+        }
+    );
+
+
+    s.input.on(
+        "pointerup",
+        p => {
+
+            if (!alive) return;
+
+            const dx =
+                p.x - touchX;
+
+            const dy =
+                p.y - touchY;
+
+
+            if (
+                Math.abs(dx) > 40 &&
+                Math.abs(dx) >
+                Math.abs(dy)
+            ) {
+
+                move(
+                    dx > 0 ? 1 : -1
+                );
+
+            }
+
+            else if (
+                dy < -40
+            ) {
+
+                jump();
+
+            }
+
+        }
+    );
+
+
+    showStartScreen(s);
 
 }
 
 
-function makeRunner(s,x,y){
+// =====================================================
+// ФОН
+// =====================================================
 
- const c=s.add.container(
-  x,y
- )
- .setDepth(15);
+function createBackground(s) {
 
+    const city =
+        s.add.image(
+            W / 2,
+            H / 2,
+            "city"
+        );
 
- // ТЕНЬ
+    city.setDisplaySize(
+        W,
+        H
+    );
 
- const shadow=s.add.ellipse(
-  0,
-  35,
-  48,
-  13,
-  0x000000,
-  .4
- );
-
-
- // НОГИ
-
- const legL=s.add.rectangle(
-  -9,
-  20,
-  10,
-  30,
-  0x111827
- )
- .setOrigin(.5,.15);
+    city.setDepth(-20);
 
 
- const legR=s.add.rectangle(
-  9,
-  20,
-  10,
-  30,
-  0x111827
- )
- .setOrigin(.5,.15);
+    // затемнение,
+    // чтобы дорога и объекты читались
 
-
- // КРОССОВКИ
-
- const shoeL=s.add.ellipse(
-  -10,
-  45,
-  16,
-  8,
-  0xf8fafc
- );
-
- const shoeR=s.add.ellipse(
-  10,
-  45,
-  16,
-  8,
-  0xf8fafc
- );
-
-
- // ТЕЛО
-
- const torso=s.add.rectangle(
-  0,
-  -5,
-  42,
-  48,
-  0xf1f5f9
- );
-
-
- // ЖИЛЕТ
-
- const vest=s.add.rectangle(
-  0,
-  -4,
-  29,
-  39,
-  0x111827
- );
-
-
- // НЕОНОВАЯ ЭМБЛЕМА
-
- const neon=s.add.triangle(
-  0,
-  -5,
-  -9,-9,
-  9,-9,
-  0,10,
-  0x22d3ee
- );
-
-
- // ГОЛОВА
-
- const head=s.add.circle(
-  0,
-  -43,
-  16,
-  0xe8b68e
- );
-
-
- // КЕПКА
-
- const cap=s.add.ellipse(
-  0,
-  -55,
-  31,
-  12,
-  0x0f172a
- );
-
- const brim=s.add.rectangle(
-  9,
-  -51,
-  18,
-  4,
-  0x111827
- );
-
-
- // РУКИ
-
- const armL=s.add.rectangle(
-  -25,
-  -3,
-  9,
-  35,
-  0xe8b68e
- )
- .setOrigin(.5,.1)
- .setAngle(18);
-
-
- const armR=s.add.rectangle(
-  25,
-  -3,
-  9,
-  35,
-  0xe8b68e
- )
- .setOrigin(.5,.1)
- .setAngle(-18);
-
-
- c.add([
-  shadow,
-  legL,
-  legR,
-  shoeL,
-  shoeR,
-  torso,
-  vest,
-  neon,
-  armL,
-  armR,
-  head,
-  cap,
-  brim
- ]);
-
-
- c.setSize(
-  42,
-  78
- );
-
-
- // АНИМАЦИЯ БЕГА
-
- s.tweens.add({
-  targets:legL,
-  angle:{
-   from:-22,
-   to:22
-  },
-  duration:135,
-  yoyo:true,
-  repeat:-1
- });
-
-
- s.tweens.add({
-  targets:legR,
-  angle:{
-   from:22,
-   to:-22
-  },
-  duration:135,
-  yoyo:true,
-  repeat:-1
- });
-
-
- s.tweens.add({
-  targets:armL,
-  angle:{
-   from:28,
-   to:-12
-  },
-  duration:135,
-  yoyo:true,
-  repeat:-1
- });
-
-
- s.tweens.add({
-  targets:armR,
-  angle:{
-   from:-28,
-   to:12
-  },
-  duration:135,
-  yoyo:true,
-  repeat:-1
- });
-
-
- s.tweens.add({
-  targets:c,
-  scaleY:{
-   from:1,
-   to:.97
-  },
-  duration:135,
-  yoyo:true,
-  repeat:-1
- });
-
-
- return c;
+    s.add.rectangle(
+        W / 2,
+        H / 2,
+        W,
+        H,
+        0x020617,
+        0.15
+    )
+    .setDepth(-19);
 
 }
 
 
-function makeVehicle(
- s,
- x,
- y,
- type
-){
+// =====================================================
+// ДОРОГА
+// =====================================================
 
- const c=s.add.container(
-  x,y
- )
- .setDepth(12);
+function createRoad(s) {
 
+    // затемнённая игровая зона
 
- let w=58;
- let h=72;
- let body=0xef4444;
-
-
- // СИНИЙ ФУРГОН
-
- if(type===1){
-
-  w=64;
-  h=92;
-  body=0x2563eb;
-
- }
+    s.add.rectangle(
+        W / 2,
+        H / 2 + 80,
+        W * 0.78,
+        H - 160,
+        0x050b18,
+        0.42
+    )
+    .setDepth(-10);
 
 
- // ЖЁЛТАЯ НИЗКАЯ МАШИНА
+    // светящиеся края
 
- if(type===2){
-
-  w=55;
-  h=65;
-  body=0xf59e0b;
-
- }
-
-
- const shadow=s.add.ellipse(
-  0,
-  h*.42,
-  w*.95,
-  15,
-  0x000000,
-  .35
- );
+    s.add.rectangle(
+        W * 0.105,
+        H / 2 + 80,
+        4,
+        H - 160,
+        0x22d3ee,
+        0.8
+    )
+    .setDepth(-8);
 
 
- const base=s.add.rectangle(
-  0,
-  0,
-  w,
-  h,
-  body
- )
- .setStrokeStyle(
-  2,
-  0xffffff,
-  .12
- );
+    s.add.rectangle(
+        W * 0.895,
+        H / 2 + 80,
+        4,
+        H - 160,
+        0xf472b6,
+        0.8
+    )
+    .setDepth(-8);
 
 
- const glass=s.add.rectangle(
-  0,
-  -h*.22,
-  w*.68,
-  h*.24,
-  0x07152d
- );
+    // разметка
 
+    [
+        W * 0.385,
+        W * 0.615
+    ]
+    .forEach(x => {
 
- const shine=s.add.rectangle(
-  -w*.34,
-  -2,
-  3,
-  h*.72,
-  0xffffff,
-  .18
- );
+        for (
+            let y = 120;
+            y < H + 100;
+            y += 105
+        ) {
 
+            const line =
+                s.add.rectangle(
+                    x,
+                    y,
+                    5,
+                    50,
+                    0xffffff,
+                    0.65
+                );
 
- const l1=s.add.circle(
-  -w*.28,
-  h*.31,
-  5,
-  0xfff3a3
- );
+            line.setDepth(-7);
 
+            roadLines.push(line);
 
- const l2=s.add.circle(
-  w*.28,
-  h*.31,
-  5,
-  0xfff3a3
- );
+        }
 
-
- c.add([
-  shadow,
-  base,
-  glass,
-  shine,
-  l1,
-  l2
- ]);
-
-
- c.setSize(
-  w-6,
-  h-5
- );
-
-
- return c;
+    });
 
 }
 
 
-function spawnObstacle(s){
+// =====================================================
+// АНИМАЦИЯ ПЕРСОНАЖА
+// =====================================================
 
- const ln=
-  Phaser.Math.Between(
-   0,2
-  );
+function createAnimations(s) {
 
- const type=
-  Phaser.Math.Between(
-   0,2
-  );
+    if (
+        !s.anims.exists(
+            "runner-run"
+        )
+    ) {
 
+        s.anims.create({
 
- const o=makeVehicle(
-  s,
-  LANES[ln],
-  170,
-  type
- );
+            key:
+                "runner-run",
 
+            frames: [
+                { key: "sprites", frame: 0 },
+                { key: "sprites", frame: 1 },
+                { key: "sprites", frame: 2 },
+                { key: "sprites", frame: 3 }
+            ],
 
- s.physics.add.existing(o);
+            frameRate: 10,
 
- o.body
-  .setAllowGravity(false)
-  .setVelocityY(speed);
+            repeat: -1
 
+        });
 
- // ЖЁЛТУЮ МАШИНУ
- // МОЖНО ПЕРЕПРЫГНУТЬ
-
- o.setData(
-  "jumpable",
-  type===2
- );
-
-
- obstacles.add(o);
+    }
 
 }
 
 
-function spawnCoin(s){
+// =====================================================
+// ПЕРСОНАЖ
+// =====================================================
 
- const ln=
-  Phaser.Math.Between(
-   0,2
-  );
+function createPlayer(s) {
 
-
- const c=s.add.container(
-  LANES[ln],
-  170
- )
- .setDepth(13);
-
-
- const glow=s.add.circle(
-  0,
-  0,
-  21,
-  0xffa600,
-  .18
- );
+    player =
+        s.physics.add.sprite(
+            LANES[lane],
+            H - 115,
+            "sprites",
+            0
+        );
 
 
- const outer=s.add.circle(
-  0,
-  0,
-  15,
-  0xf59e0b
- )
- .setStrokeStyle(
-  3,
-  0xffe066
- );
+    player.setDisplaySize(
+        78,
+        110
+    );
 
 
- const inner=s.add.circle(
-  0,
-  0,
-  10,
-  0xffc928
- );
+    player.setDepth(20);
 
 
- const star=s.add.text(
-  0,
-  0,
-  "★",
-  {
-   fontSize:"12px",
-   color:"#fff6b0"
-  }
- )
- .setOrigin(.5);
+    player.body.setSize(
+        75,
+        120
+    );
 
 
- c.add([
-  glow,
-  outer,
-  inner,
-  star
- ]);
+    player.body.setAllowGravity(
+        false
+    );
 
 
- c.setSize(
-  28,
-  28
- );
-
-
- s.physics.add.existing(c);
-
- c.body
-  .setAllowGravity(false)
-  .setVelocityY(speed);
-
-
- coins.add(c);
-
-
- // ВРАЩЕНИЕ МОНЕТЫ
-
- s.tweens.add({
-
-  targets:c,
-
-  scaleX:{
-   from:1,
-   to:.35
-  },
-
-  duration:240,
-
-  yoyo:true,
-
-  repeat:-1
-
- });
+    player.play(
+        "runner-run"
+    );
 
 }
 
 
-function move(d){
+// =====================================================
+// HUD
+// =====================================================
 
- if(!alive)return;
+function createHUD(s) {
+
+    // счёт
+
+    const panel =
+        s.add.rectangle(
+            75,
+            52,
+            130,
+            74,
+            0x020617,
+            0.82
+        );
+
+    panel
+        .setStrokeStyle(
+            1,
+            0x475569
+        )
+        .setDepth(50);
 
 
- lane=
-  Phaser.Math.Clamp(
-   lane+d,
-   0,
-   2
-  );
+    scoreText =
+        s.add.text(
+            20,
+            18,
+            "0",
+            {
+                fontSize:
+                    "30px",
+
+                fontStyle:
+                    "bold",
+
+                color:
+                    "#ffffff"
+            }
+        )
+        .setDepth(51);
 
 
- player.scene.tweens.add({
+    s.add.text(
+        20,
+        55,
+        "РЕКОРД " + best,
+        {
+            fontSize:
+                "12px",
 
-  targets:player,
+            color:
+                "#cbd5e1"
+        }
+    )
+    .setDepth(51);
 
-  x:LANES[lane],
 
-  duration:120,
+    // монеты
 
-  ease:"Sine.easeOut"
+    const coinCircle =
+        s.add.circle(
+            323,
+            38,
+            17,
+            0xf59e0b
+        );
 
- });
+    coinCircle
+        .setStrokeStyle(
+            3,
+            0xffe066
+        )
+        .setDepth(50);
+
+
+    s.add.text(
+        323,
+        38,
+        "★",
+        {
+            fontSize:
+                "14px",
+
+            color:
+                "#fff7ae"
+        }
+    )
+    .setOrigin(0.5)
+    .setDepth(51);
+
+
+    coinText =
+        s.add.text(
+            350,
+            27,
+            "0",
+            {
+                fontSize:
+                    "18px",
+
+                fontStyle:
+                    "bold",
+
+                color:
+                    "#ffffff"
+            }
+        )
+        .setDepth(51);
 
 }
 
 
-function jump(){
+// =====================================================
+// ДВИЖЕНИЕ
+// =====================================================
 
- if(
-  !alive ||
-  player.getData("jumping")
- ) return;
+function move(direction) {
 
-
- player.setData(
-  "jumping",
-  true
- );
+    if (!alive) return;
 
 
- player.scene.tweens.add({
+    lane =
+        Phaser.Math.Clamp(
+            lane + direction,
+            0,
+            2
+        );
 
-  targets:player,
 
-  y:player.y-120,
+    player.scene.tweens.add({
 
-  scaleX:1.08,
+        targets:
+            player,
 
-  scaleY:1.08,
+        x:
+            LANES[lane],
 
-  duration:255,
+        duration:
+            120,
 
-  yoyo:true,
+        ease:
+            "Sine.easeOut"
 
-  ease:"Sine.easeOut",
-
-  onComplete:()=>{
-
-   player.setData(
-    "jumping",
-    false
-   );
-
-  }
-
- });
+    });
 
 }
 
 
-function update(t,dt){
+// =====================================================
+// ПРЫЖОК
+// =====================================================
 
- if(!alive)return;
+function jump() {
 
+    if (!alive) return;
 
- score+=dt*.012;
-
-
- speed=Math.min(
-  800,
-  390+score*.17
- );
-
-
- // ДВИЖЕНИЕ ДОРОГИ
-
- roadMarks.forEach(m=>{
-
-  m.y+=
-   speed*
-   dt/
-   1000;
+    if (
+        player.getData(
+            "jumping"
+        )
+    ) return;
 
 
-  if(m.y>H+45){
-
-   m.y=185;
-
-  }
-
- });
+    player.setData(
+        "jumping",
+        true
+    );
 
 
- // ПРЕПЯТСТВИЯ
-
- obstacles
- .getChildren()
- .forEach(o=>{
-
-  if(
-   o.active &&
-   o.body
-  ){
-
-   o.body.setVelocityY(
-    speed
-   );
+    player.stop();
 
 
-   if(
-    o.y>H+110
-   ){
-
-    o.destroy();
-
-   }
-
-  }
-
- });
+    player.setFrame(
+        4
+    );
 
 
- // МОНЕТЫ
+    player.scene.tweens.add({
 
- coins
- .getChildren()
- .forEach(c=>{
+        targets:
+            player,
 
-  if(
-   c.active &&
-   c.body
-  ){
+        y:
+            player.y - 125,
 
-   c.body.setVelocityY(
-    speed
-   );
+        scaleX:
+            player.scaleX * 1.08,
 
+        scaleY:
+            player.scaleY * 1.08,
 
-   if(
-    c.y>H+60
-   ){
+        duration:
+            270,
 
-    c.destroy();
+        yoyo:
+            true,
 
-   }
+        ease:
+            "Sine.easeOut",
 
-  }
+        onComplete:
+            () => {
 
- });
+                player.setData(
+                    "jumping",
+                    false
+                );
 
+                player.play(
+                    "runner-run"
+                );
 
- scoreText.setText(
-  Math.floor(score)
- );
+            }
 
-
- coinText.setText(
-  coinsCount
- );
+    });
 
 }
 
 
-function burst(
- s,
- x,
- y,
- color
-){
+// =====================================================
+// МАШИНЫ
+// =====================================================
 
- for(
-  let i=0;
-  i<8;
-  i++
- ){
+function spawnObstacle(s) {
 
-  const p=s.add.circle(
-   x,
-   y,
-   Phaser.Math.Between(
-    2,4
-   ),
-   color
-  )
-  .setDepth(40);
+    const randomLane =
+        Phaser.Math.Between(
+            0,
+            2
+        );
 
 
-  const a=
-   Math.PI*
-   2*
-   i/
-   8;
+    // кадры транспорта
+    // 6–11
+
+    const vehicleFrame =
+        Phaser.Math.Between(
+            6,
+            11
+        );
 
 
-  const dist=
-   Phaser.Math.Between(
-    25,48
-   );
+    const obstacle =
+        s.physics.add.sprite(
+            LANES[randomLane],
+            -100,
+            "sprites",
+            vehicleFrame
+        );
 
 
-  s.tweens.add({
-
-   targets:p,
-
-   x:
-    x+
-    Math.cos(a)*
-    dist,
-
-   y:
-    y+
-    Math.sin(a)*
-    dist,
-
-   alpha:0,
-
-   duration:350,
-
-   onComplete:
-    ()=>p.destroy()
-
-  });
-
- }
-
-}
+    obstacle.setDisplaySize(
+        92,
+        115
+    );
 
 
-function floatingText(
- s,
- x,
- y,
- txt,
- color
-){
-
- const t=s.add.text(
-  x,
-  y,
-  txt,
-  {
-   fontSize:"18px",
-   fontStyle:"bold",
-   color
-  }
- )
- .setOrigin(.5)
- .setDepth(40);
+    obstacle.setDepth(
+        18
+    );
 
 
- s.tweens.add({
+    obstacle.body.setAllowGravity(
+        false
+    );
 
-  targets:t,
 
-  y:y-40,
+    obstacle.body.setVelocityY(
+        speed
+    );
 
-  alpha:0,
 
-  duration:550,
+    obstacle.body.setSize(
+        110,
+        135
+    );
 
-  onComplete:
-   ()=>t.destroy()
 
- });
+    obstacles.add(
+        obstacle
+    );
 
 }
 
 
-function showStart(s){
+// =====================================================
+// МОНЕТЫ
+// =====================================================
 
- alive=false;
- started=false;
+function spawnCoin(s) {
 
-
- const shade=s.add.rectangle(
-  W/2,
-  H/2,
-  W,
-  H,
-  0x020617,
-  .62
- )
- .setDepth(50);
+    const randomLane =
+        Phaser.Math.Between(
+            0,
+            2
+        );
 
 
- const glow=s.add.circle(
-  W/2,
-  235,
-  115,
-  0x2563eb,
-  .13
- )
- .setDepth(51);
+    // frame 15 = монета
+
+    const coin =
+        s.physics.add.sprite(
+            LANES[randomLane],
+            -40,
+            "sprites",
+            15
+        );
 
 
- const title=s.add.text(
-  W/2,
-  185,
-  "TURBO",
-  {
-   fontSize:"58px",
-   fontStyle:"bold italic",
-   color:"#f8fafc",
-   stroke:"#0f172a",
-   strokeThickness:8
-  }
- )
- .setOrigin(.5)
- .setDepth(52);
+    coin.setDisplaySize(
+        48,
+        54
+    );
 
 
- const title2=s.add.text(
-  W/2,
-  242,
-  "RUNNER",
-  {
-   fontSize:"48px",
-   fontStyle:"bold italic",
-   color:"#f59e0b",
-   stroke:"#0f172a",
-   strokeThickness:7
-  }
- )
- .setOrigin(.5)
- .setDepth(52);
+    coin.setDepth(
+        19
+    );
 
 
- const sub=s.add.text(
-  W/2,
-  310,
-  "НОЧНОЙ ГОРОД • БЕСКОНЕЧНЫЙ ЗАБЕГ",
-  {
-   fontSize:"11px",
-   color:"#94a3b8"
-  }
- )
- .setOrigin(.5)
- .setDepth(52);
+    coin.body.setAllowGravity(
+        false
+    );
 
 
- const btn=s.add.rectangle(
-  W/2,
-  570,
-  250,
-  68,
-  0xfbbf24
- )
- .setStrokeStyle(
-  3,
-  0xffe48a
- )
- .setInteractive()
- .setDepth(52);
+    coin.body.setVelocityY(
+        speed
+    );
 
 
- const bt=s.add.text(
-  W/2,
-  570,
-  "▶  ИГРАТЬ",
-  {
-   fontSize:"23px",
-   fontStyle:"bold",
-   color:"#111827"
-  }
- )
- .setOrigin(.5)
- .setDepth(53);
+    coin.body.setSize(
+        60,
+        60
+    );
 
 
- const help=s.add.text(
-  W/2,
-  635,
-  "СВАЙП ← →   •   ПРЫЖОК ↑",
-  {
-   fontSize:"13px",
-   color:"#cbd5e1"
-  }
- )
- .setOrigin(.5)
- .setDepth(52);
+    coins.add(
+        coin
+    );
 
 
- s.tweens.add({
+    // вращение
 
-  targets:btn,
+    s.tweens.add({
 
-  scaleX:{
-   from:1,
-   to:1.035
-  },
+        targets:
+            coin,
 
-  scaleY:{
-   from:1,
-   to:1.035
-  },
+        scaleX:
+            coin.scaleX * 0.4,
 
-  duration:700,
+        duration:
+            260,
 
-  yoyo:true,
+        yoyo:
+            true,
 
-  repeat:-1
+        repeat:
+            -1
 
- });
-
-
- btn.on(
-  "pointerup",
-  ()=>{
-
-   [
-    shade,
-    glow,
-    title,
-    title2,
-    sub,
-    btn,
-    bt,
-    help
-   ]
-   .forEach(
-    x=>x.destroy()
-   );
-
-
-   alive=true;
-   started=true;
-
-  }
- );
+    });
 
 }
 
 
-function crash(s){
+// =====================================================
+// СБОР МОНЕТЫ
+// =====================================================
 
- if(!alive)return;
+function collectCoin(
+    player,
+    coin
+) {
 
-
- alive=false;
-
-
- const final=
-  Math.floor(score);
-
-
- if(final>best){
-
-  best=final;
-
-  localStorage.setItem(
-   "turboBest",
-   best
-  );
-
- }
+    if (!coin.active) return;
 
 
- burst(
-  s,
-  player.x,
-  player.y,
-  0xff4d4d
- );
+    const s =
+        player.scene;
 
 
- s.cameras.main.shake(
-  250,
-  .015
- );
+    const x =
+        coin.x;
+
+    const y =
+        coin.y;
 
 
- s.time.delayedCall(
-  180,
-  ()=>showGameOver(
-   s,
-   final
-  )
- );
+    coin.destroy();
+
+
+    collectedCoins++;
+
+    score += 75;
+
+
+    coinText.setText(
+        collectedCoins
+    );
+
+
+    // эффект
+
+    for (
+        let i = 0;
+        i < 8;
+        i++
+    ) {
+
+        const particle =
+            s.add.circle(
+                x,
+                y,
+                3,
+                0xffd43b
+            )
+            .setDepth(40);
+
+
+        const angle =
+            Math.PI *
+            2 *
+            i /
+            8;
+
+
+        s.tweens.add({
+
+            targets:
+                particle,
+
+            x:
+                x +
+                Math.cos(angle) *
+                35,
+
+            y:
+                y +
+                Math.sin(angle) *
+                35,
+
+            alpha:
+                0,
+
+            duration:
+                350,
+
+            onComplete:
+                () =>
+                    particle.destroy()
+
+        });
+
+    }
+
+
+    const plus =
+        s.add.text(
+            x,
+            y - 30,
+            "+75",
+            {
+                fontSize:
+                    "17px",
+
+                fontStyle:
+                    "bold",
+
+                color:
+                    "#ffd43b"
+            }
+        )
+        .setOrigin(0.5)
+        .setDepth(40);
+
+
+    s.tweens.add({
+
+        targets:
+            plus,
+
+        y:
+            y - 70,
+
+        alpha:
+            0,
+
+        duration:
+            500,
+
+        onComplete:
+            () =>
+                plus.destroy()
+
+    });
 
 }
 
+
+// =====================================================
+// СТОЛКНОВЕНИЕ
+// =====================================================
+
+function hitObstacle(
+    player,
+    obstacle
+) {
+
+    if (!alive) return;
+
+
+    // во время прыжка
+    // разрешаем перепрыгивать
+
+    if (
+        player.getData(
+            "jumping"
+        )
+    ) {
+
+        return;
+
+    }
+
+
+    gameOver(
+        player.scene
+    );
+
+}
+
+
+// =====================================================
+// UPDATE
+// =====================================================
+
+function update(
+    time,
+    delta
+) {
+
+    if (!alive) return;
+
+
+    score +=
+        delta *
+        0.012;
+
+
+    speed =
+        Math.min(
+            820,
+            390 +
+            score *
+            0.18
+        );
+
+
+    // движение разметки
+
+    roadLines
+        .forEach(line => {
+
+            line.y +=
+                speed *
+                delta /
+                1000;
+
+
+            if (
+                line.y >
+                H + 60
+            ) {
+
+                line.y =
+                    110;
+
+            }
+
+        });
+
+
+    // машины
+
+    obstacles
+        .getChildren()
+        .forEach(
+            obstacle => {
+
+                if (
+                    obstacle.active &&
+                    obstacle.body
+                ) {
+
+                    obstacle.body
+                        .setVelocityY(
+                            speed
+                        );
+
+
+                    if (
+                        obstacle.y >
+                        H + 150
+                    ) {
+
+                        obstacle.destroy();
+
+                    }
+
+                }
+
+            }
+        );
+
+
+    // монеты
+
+    coins
+        .getChildren()
+        .forEach(
+            coin => {
+
+                if (
+                    coin.active &&
+                    coin.body
+                ) {
+
+                    coin.body
+                        .setVelocityY(
+                            speed
+                        );
+
+
+                    if (
+                        coin.y >
+                        H + 80
+                    ) {
+
+                        coin.destroy();
+
+                    }
+
+                }
+
+            }
+        );
+
+
+    scoreText.setText(
+        Math.floor(score)
+    );
+
+}
+
+
+// =====================================================
+// СТАРТОВЫЙ ЭКРАН
+// =====================================================
+
+function showStartScreen(s) {
+
+    alive = false;
+    started = false;
+
+
+    const dark =
+        s.add.rectangle(
+            W / 2,
+            H / 2,
+            W,
+            H,
+            0x020617,
+            0.68
+        )
+        .setDepth(100);
+
+
+    const glow =
+        s.add.circle(
+            W / 2,
+            235,
+            120,
+            0x2563eb,
+            0.18
+        )
+        .setDepth(101);
+
+
+    const title =
+        s.add.text(
+            W / 2,
+            180,
+            "TURBO",
+            {
+                fontSize:
+                    "60px",
+
+                fontStyle:
+                    "bold italic",
+
+                color:
+                    "#ffffff",
+
+                stroke:
+                    "#020617",
+
+                strokeThickness:
+                    8
+            }
+        )
+        .setOrigin(0.5)
+        .setDepth(102);
+
+
+    const title2 =
+        s.add.text(
+            W / 2,
+            240,
+            "RUNNER",
+            {
+                fontSize:
+                    "48px",
+
+                fontStyle:
+                    "bold italic",
+
+                color:
+                    "#fbbf24",
+
+                stroke:
+                    "#020617",
+
+                strokeThickness:
+                    7
+            }
+        )
+        .setOrigin(0.5)
+        .setDepth(102);
+
+
+    const subtitle =
+        s.add.text(
+            W / 2,
+            310,
+            "НОЧНОЙ ГОРОД",
+            {
+                fontSize:
+                    "15px",
+
+                fontStyle:
+                    "bold",
+
+                color:
+                    "#22d3ee"
+            }
+        )
+        .setOrigin(0.5)
+        .setDepth(102);
+
+
+    const button =
+        s.add.rectangle(
+            W / 2,
+            575,
+            250,
+            68,
+            0xfbbf24
+        )
+        .setStrokeStyle(
+            3,
+            0xffe99a
+        )
+        .setInteractive()
+        .setDepth(102);
+
+
+    const buttonText =
+        s.add.text(
+            W / 2,
+            575,
+            "▶  ИГРАТЬ",
+            {
+                fontSize:
+                    "23px",
+
+                fontStyle:
+                    "bold",
+
+                color:
+                    "#111827"
+            }
+        )
+        .setOrigin(0.5)
+        .setDepth(103);
+
+
+    const help =
+        s.add.text(
+            W / 2,
+            650,
+            "← → СВАЙП   •   ↑ ПРЫЖОК",
+            {
+                fontSize:
+                    "13px",
+
+                color:
+                    "#e2e8f0"
+            }
+        )
+        .setOrigin(0.5)
+        .setDepth(102);
+
+
+    s.tweens.add({
+
+        targets:
+            button,
+
+        scaleX: {
+            from: 1,
+            to: 1.04
+        },
+
+        scaleY: {
+            from: 1,
+            to: 1.04
+        },
+
+        duration:
+            700,
+
+        yoyo:
+            true,
+
+        repeat:
+            -1
+
+    });
+
+
+    button.on(
+        "pointerup",
+        () => {
+
+            [
+                dark,
+                glow,
+                title,
+                title2,
+                subtitle,
+                button,
+                buttonText,
+                help
+            ]
+            .forEach(
+                obj =>
+                    obj.destroy()
+            );
+
+
+            started = true;
+            alive = true;
+
+        }
+    );
+
+}
+
+
+// =====================================================
+// GAME OVER
+// =====================================================
+
+function gameOver(s) {
+
+    if (!alive) return;
+
+
+    alive = false;
+
+
+    const finalScore =
+        Math.floor(score);
+
+
+    if (
+        finalScore >
+        best
+    ) {
+
+        best =
+            finalScore;
+
+
+        localStorage.setItem(
+            "turboBest",
+            best
+        );
+
+    }
+
+
+    player.stop();
+
+
+    s.cameras.main.shake(
+        250,
+        0.018
+    );
+
+
+    s.cameras.main.flash(
+        180,
+        255,
+        50,
+        50
+    );
+
+
+    s.time.delayedCall(
+        220,
+        () => {
+
+            showGameOver(
+                s,
+                finalScore
+            );
+
+        }
+    );
+
+}
+
+
+// =====================================================
+// GAME OVER SCREEN
+// =====================================================
 
 function showGameOver(
- s,
- final
-){
+    s,
+    finalScore
+) {
 
- s.add.rectangle(
-  W/2,
-  H/2,
-  W,
-  H,
-  0x020617,
-  .82
- )
- .setDepth(60);
-
-
- s.add.text(
-  W/2,
-  210,
-  "GAME",
-  {
-   fontSize:"55px",
-   fontStyle:"bold italic",
-   color:"#fff"
-  }
- )
- .setOrigin(.5)
- .setDepth(61);
+    s.add.rectangle(
+        W / 2,
+        H / 2,
+        W,
+        H,
+        0x020617,
+        0.84
+    )
+    .setDepth(150);
 
 
- s.add.text(
-  W/2,
-  262,
-  "OVER",
-  {
-   fontSize:"55px",
-   fontStyle:"bold italic",
-   color:"#ef4444"
-  }
- )
- .setOrigin(.5)
- .setDepth(61);
+    s.add.text(
+        W / 2,
+        190,
+        "GAME",
+        {
+            fontSize:
+                "58px",
+
+            fontStyle:
+                "bold italic",
+
+            color:
+                "#ffffff",
+
+            stroke:
+                "#020617",
+
+            strokeThickness:
+                7
+        }
+    )
+    .setOrigin(0.5)
+    .setDepth(151);
 
 
- s.add.rectangle(
-  W/2,
-  390,
-  290,
-  150,
-  0x07111f,
-  .96
- )
- .setStrokeStyle(
-  2,
-  0x334155
- )
- .setDepth(61);
+    s.add.text(
+        W / 2,
+        250,
+        "OVER",
+        {
+            fontSize:
+                "58px",
+
+            fontStyle:
+                "bold italic",
+
+            color:
+                "#ef4444",
+
+            stroke:
+                "#020617",
+
+            strokeThickness:
+                7
+        }
+    )
+    .setOrigin(0.5)
+    .setDepth(151);
 
 
- s.add.text(
-  W/2,
-  355,
-  "СЧЁТ",
-  {
-   fontSize:"13px",
-   color:"#94a3b8"
-  }
- )
- .setOrigin(.5)
- .setDepth(62);
+    s.add.rectangle(
+        W / 2,
+        390,
+        290,
+        160,
+        0x07111f,
+        0.96
+    )
+    .setStrokeStyle(
+        2,
+        0x475569
+    )
+    .setDepth(151);
 
 
- s.add.text(
-  W/2,
-  389,
-  String(final),
-  {
-   fontSize:"38px",
-   fontStyle:"bold",
-   color:"#fbbf24"
-  }
- )
- .setOrigin(.5)
- .setDepth(62);
+    s.add.text(
+        W / 2,
+        345,
+        "СЧЁТ",
+        {
+            fontSize:
+                "13px",
+
+            color:
+                "#94a3b8"
+        }
+    )
+    .setOrigin(0.5)
+    .setDepth(152);
 
 
- s.add.text(
-  W/2,
-  435,
-  "РЕКОРД  "+
-  best+
-  "   •   МОНЕТЫ  "+
-  coinsCount,
-  {
-   fontSize:"13px",
-   color:"#e2e8f0"
-  }
- )
- .setOrigin(.5)
- .setDepth(62);
+    s.add.text(
+        W / 2,
+        385,
+        String(
+            finalScore
+        ),
+        {
+            fontSize:
+                "40px",
+
+            fontStyle:
+                "bold",
+
+            color:
+                "#fbbf24"
+        }
+    )
+    .setOrigin(0.5)
+    .setDepth(152);
 
 
- const btn=s.add.rectangle(
-  W/2,
-  535,
-  250,
-  66,
-  0xfbbf24
- )
- .setInteractive()
- .setDepth(62);
+    s.add.text(
+        W / 2,
+        440,
+        "РЕКОРД  " +
+        best +
+        "     ★ " +
+        collectedCoins,
+        {
+            fontSize:
+                "14px",
+
+            color:
+                "#ffffff"
+        }
+    )
+    .setOrigin(0.5)
+    .setDepth(152);
 
 
- s.add.text(
-  W/2,
-  535,
-  "↻  ЕЩЁ РАЗ",
-  {
-   fontSize:"21px",
-   fontStyle:"bold",
-   color:"#111827"
-  }
- )
- .setOrigin(.5)
- .setDepth(63);
+    const restart =
+        s.add.rectangle(
+            W / 2,
+            555,
+            250,
+            68,
+            0xfbbf24
+        )
+        .setStrokeStyle(
+            3,
+            0xffe99a
+        )
+        .setInteractive()
+        .setDepth(152);
 
 
- btn.on(
-  "pointerup",
-  ()=>location.reload()
- );
+    s.add.text(
+        W / 2,
+        555,
+        "↻  ЕЩЁ РАЗ",
+        {
+            fontSize:
+                "22px",
+
+            fontStyle:
+                "bold",
+
+            color:
+                "#111827"
+        }
+    )
+    .setOrigin(0.5)
+    .setDepth(153);
+
+
+    restart.on(
+        "pointerup",
+        () => {
+
+            location.reload();
+
+        }
+    );
 
 }
