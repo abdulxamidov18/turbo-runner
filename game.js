@@ -69,7 +69,7 @@ function preload() {
 
     this.load.spritesheet(
         "sprites",
-        "sprites.png",
+        "sprites.PNG",
         {
             frameWidth: 160,
             frameHeight: 180
